@@ -1,0 +1,7 @@
+node_modules/
+.mixamo-profile/
+mixamo-downloads/
+mixamo/
+mixamo-test/
+*.log
+.DS_Store
