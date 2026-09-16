@@ -9,7 +9,8 @@
   },
   "scripts": {
     "start": "node src/cli.mjs",
-    "check": "node --check src/cli.mjs && node --check src/mixamo.mjs && node --check src/state.mjs",
+    "scan": "node src/scan.mjs",
+    "check": "node --check src/cli.mjs && node --check src/mixamo.mjs && node --check src/state.mjs && node --check src/scan.mjs",
     "test": "node --test"
   },
   "dependencies": {
