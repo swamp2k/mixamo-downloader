@@ -13,6 +13,6 @@
     "test": "node --test"
   },
   "dependencies": {
-    "playwright": "latest"
+    "playwright": "1.62.0"
   }
 }
