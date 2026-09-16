@@ -109,26 +109,37 @@ async function main() {
   console.log(`Output:     ${config.outputDir}`);
   console.log(`Animations: ${config.animationsDir}`);
 
-  const allFiles = await walk(config.animationsDir);
-  const fbxPaths = allFiles.filter((file) => path.extname(file).toLowerCase() === ".fbx");
-  fbxPaths.sort((a, b) => a.localeCompare(b));
+  const allPaths = await walk(config.animationsDir);
+  allPaths.sort((a, b) => a.localeCompare(b));
+
+  const allDiskFiles = [];
+  for (const filePath of allPaths) {
+    const stat = await fsp.stat(filePath);
+    allDiskFiles.push({
+      file: rel(config.outputDir, filePath),
+      filename: path.basename(filePath),
+      extension: path.extname(filePath).toLowerCase(),
+      bytes: stat.size,
+    });
+  }
+
+  const fbxDiskFiles = allDiskFiles.filter((item) => item.extension === ".fbx");
+  const zipDiskFiles = allDiskFiles.filter((item) => item.extension === ".zip");
 
   const records = [];
   let totalBytes = 0;
-  for (let index = 0; index < fbxPaths.length; index += 1) {
-    const filePath = fbxPaths[index];
-    const stat = await fsp.stat(filePath);
-    totalBytes += stat.size;
-    process.stdout.write(`\rHashing ${index + 1}/${fbxPaths.length}...`);
+  for (let index = 0; index < fbxDiskFiles.length; index += 1) {
+    const disk = fbxDiskFiles[index];
+    const filePath = path.join(config.outputDir, disk.file);
+    totalBytes += disk.bytes;
+    process.stdout.write(`\rHashing ${index + 1}/${fbxDiskFiles.length}...`);
     records.push({
-      file: rel(config.outputDir, filePath),
-      filename: path.basename(filePath),
-      logicalName: logicalBaseName(path.basename(filePath)),
-      bytes: stat.size,
+      ...disk,
+      logicalName: logicalBaseName(disk.filename),
       sha256: await hashFile(filePath),
     });
   }
-  if (fbxPaths.length > 0) process.stdout.write("\n");
+  if (fbxDiskFiles.length > 0) process.stdout.write("\n");
 
   const zeroByte = records.filter((item) => item.bytes === 0);
   const smallFiles = records.filter((item) => item.bytes > 0 && item.bytes < config.smallThreshold);
@@ -155,7 +166,10 @@ async function main() {
   const completedEntries = state?.completed && typeof state.completed === "object"
     ? Object.values(state.completed)
     : [];
-  const diskByFile = new Map(records.map((item) => [item.file, item]));
+
+  // State may point to both individual FBX animations and ZIP animation packs.
+  // Validate against every downloaded file, not just the FBX subset we hash/analyse.
+  const diskByFile = new Map(allDiskFiles.map((item) => [item.file, item]));
 
   const stateMissingFiles = [];
   const stateSizeMismatches = [];
@@ -177,14 +191,18 @@ async function main() {
   }
 
   const stateFiles = new Set(completedEntries.map((entry) => entry.file));
-  const orphanFiles = records.filter((item) => !stateFiles.has(item.file)).map((item) => item.file);
+  const orphanFiles = allDiskFiles
+    .filter((item) => !stateFiles.has(item.file))
+    .map((item) => item.file);
 
   const report = {
     generatedAt: new Date().toISOString(),
     outputDir: config.outputDir,
     summary: {
       fbxFiles: records.length,
-      totalBytes,
+      zipPacks: zipDiskFiles.length,
+      totalDownloadedFiles: allDiskFiles.length,
+      totalFbxBytes: totalBytes,
       stateCompleted: completedEntries.length,
       zeroByteFiles: zeroByte.length,
       smallFiles: smallFiles.length,
@@ -203,6 +221,7 @@ async function main() {
     stateSizeMismatches,
     orphanFiles,
     files: records,
+    zipPacks: zipDiskFiles,
   };
 
   await fsp.mkdir(path.dirname(config.reportPath), { recursive: true });
@@ -210,15 +229,17 @@ async function main() {
 
   console.log("\n=== Summary ===");
   console.log(`FBX files:              ${records.length}`);
-  console.log(`Total size:             ${humanBytes(totalBytes)}`);
+  console.log(`ZIP packs:              ${zipDiskFiles.length}`);
+  console.log(`Downloaded files total: ${allDiskFiles.length}`);
+  console.log(`Total FBX size:          ${humanBytes(totalBytes)}`);
   console.log(`State completed:        ${completedEntries.length}`);
-  console.log(`0-byte files:           ${zeroByte.length}`);
-  console.log(`Small files (<${humanBytes(config.smallThreshold)}): ${smallFiles.length}`);
+  console.log(`0-byte FBX files:       ${zeroByte.length}`);
+  console.log(`Small FBX (<${humanBytes(config.smallThreshold)}): ${smallFiles.length}`);
   console.log(`Exact duplicate groups: ${hashGroups.length}`);
   console.log(`Name collision groups:  ${nameGroups.length}`);
   console.log(`State missing files:    ${stateMissingFiles.length}`);
   console.log(`State size mismatches:  ${stateSizeMismatches.length}`);
-  console.log(`Orphan FBX files:       ${orphanFiles.length}`);
+  console.log(`Orphan downloaded files:${orphanFiles.length}`);
   console.log(`Report:                 ${config.reportPath}`);
 
   if (hashGroups.length > 0) {
