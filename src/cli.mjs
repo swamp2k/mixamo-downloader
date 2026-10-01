@@ -60,7 +60,7 @@ function nonNegativeInteger(value, name, fallback) {
 }
 
 function isBrowserClosedError(error) {
-  return /target page, context or browser has been closed|browser has been closed|context closed/i.test(
+  return /target page, context or browser has been closed|browser has been closed|context closed|browser session terminated/i.test(
     error?.message ?? "",
   );
 }
@@ -70,7 +70,7 @@ function parseCli() {
     options: {
       output: { type: "string" }, profile: { type: "string" }, browser: { type: "string" }, type: { type: "string" },
       "start-page": { type: "string" }, "end-page": { type: "string" }, limit: { type: "string" },
-      "max-items": { type: "string" }, attempts: { type: "string" },
+      "max-items": { type: "string" }, attempts: { type: "string" }, "session-restarts": { type: "string" },
       "download-timeout-ms": { type: "string" }, "selection-timeout-ms": { type: "string" },
       "modal-timeout-ms": { type: "string" }, "checkbox-timeout-ms": { type: "string" },
       "retry-delay-ms": { type: "string" }, fps: { type: "string" },
@@ -84,7 +84,7 @@ function parseCli() {
   });
 
   if (values.help) {
-    console.log(`Mixamo Downloader\n\nUsage:\n  npm start -- [options]\n\nOptions:\n  --output <dir>                 Download/state directory\n  --profile <dir>                Persistent browser profile\n  --browser <bundled|brave|edge> Browser executable (default bundled)\n  --type <animations|characters>    Catalog to download (default animations)\n  --start-page <n>               First page (default 1)\n  --end-page <n>                 Last page (default 26 animations / 2 characters)\n  --limit <n>                    Catalog page size (default 96)\n  --max-items <n>                Maximum items per page for a smoke test\n  --attempts <n>                 Attempts per item (default 5)\n  --download-timeout-ms <n>      Download event timeout (default 90000)\n  --in-place / --no-in-place     Desired In Place setting\n  --with-skin                    Download with skin\n  --fps <n>                      Preferred FPS (default 30)\n  --headless                     Run browser headless\n  --reset-state                  Clear saved completion/failure state\n  --no-final-retry               Skip the final failure-only pass\n  -h, --help                     Show this help\n`);
+    console.log(`Mixamo Downloader\n\nUsage:\n  npm start -- [options]\n\nOptions:\n  --output <dir>                 Download/state directory\n  --profile <dir>                Persistent browser profile\n  --browser <bundled|brave|edge> Browser executable (default bundled)\n  --type <animations|characters>    Catalog to download (default animations)\n  --start-page <n>               First page (default 1)\n  --end-page <n>                 Last page (default 26 animations / 2 characters)\n  --limit <n>                    Catalog page size (default 96)\n  --max-items <n>                Maximum items per page for a smoke test\n  --attempts <n>                 Attempts per item (default 5)\n  --session-restarts <n>         Browser session restarts after unexpected closure (default 3)\n  --download-timeout-ms <n>      Download event timeout (default 90000)\n  --in-place / --no-in-place     Desired In Place setting\n  --with-skin                    Download with skin\n  --fps <n>                      Preferred FPS (default 30)\n  --headless                     Run browser headless\n  --reset-state                  Clear saved completion/failure state\n  --no-final-retry               Skip the final failure-only pass\n  -h, --help                     Show this help\n`);
     return null;
   }
 
@@ -109,6 +109,7 @@ function parseCli() {
     startPage, endPage, limit: positiveInteger(values.limit, "--limit", 96),
     maxItems: values["max-items"] === undefined ? null : positiveInteger(values["max-items"], "--max-items"),
     attempts: positiveInteger(values.attempts, "--attempts", 5),
+    sessionRestarts: nonNegativeInteger(values["session-restarts"], "--session-restarts", 3),
     downloadTimeoutMs: positiveInteger(values["download-timeout-ms"], "--download-timeout-ms", 90000),
     selectionTimeoutMs: positiveInteger(values["selection-timeout-ms"], "--selection-timeout-ms", 30000),
     modalTimeoutMs: positiveInteger(values["modal-timeout-ms"], "--modal-timeout-ms", 20000),
@@ -187,15 +188,7 @@ async function runFinalFailurePass(page, config, stateStore, stopRequested) {
   }
 }
 
-async function main() {
-  const config = parseCli(); if (!config) return;
-  const stateStore = createStateStore(config.outputDir, config.type); await stateStore.load({ reset: config.resetState });
-  console.log("Mixamo Downloader");
-  console.log(`Output:  ${config.outputDir}`); console.log(`Profile: ${config.profileDir}`);
-  console.log(`Browser: ${config.browser}`); console.log(`Type:    ${config.type}`);
-  console.log(`Pages:   ${config.startPage}-${config.endPage}, ${config.limit}/page, ${config.attempts} attempts/item`);
-  console.log(`Resume:  ${stateStore.getCompletedCount()} item(s) already complete`);
-
+async function runBrowserSession(config, stateStore, stopRequested) {
   const launchOptions = {
     ...browserLaunchConfig(config.browser),
     headless: config.headless,
@@ -206,20 +199,52 @@ async function main() {
   const browser = context.browser();
   browser?.on("disconnected", () => console.error("[browser] disconnected"));
   context.on("close", () => console.error("[browser] context closed"));
-  const pages = context.pages(); const page = pages[0] ?? (await context.newPage());
+  const pages = context.pages();
+  const page = pages[0] ?? (await context.newPage());
   page.on("close", () => console.error("[browser] page closed"));
   page.on("crash", () => console.error("[browser] page crashed"));
+
+  try {
+    await ensureCatalogReady(page, config);
+    await runCatalogPass(page, config, stateStore, stopRequested);
+    if (config.finalRetry && !stopRequested()) {
+      await runFinalFailurePass(page, config, stateStore, stopRequested);
+    }
+  } finally {
+    await context.close().catch(() => {});
+  }
+}
+
+async function main() {
+  const config = parseCli(); if (!config) return;
+  const stateStore = createStateStore(config.outputDir, config.type);
+  await stateStore.load({ reset: config.resetState });
+  console.log("Mixamo Downloader");
+  console.log(`Output:  ${config.outputDir}`); console.log(`Profile: ${config.profileDir}`);
+  console.log(`Browser: ${config.browser}`); console.log(`Type:    ${config.type}`);
+  console.log(`Pages:   ${config.startPage}-${config.endPage}, ${config.limit}/page, ${config.attempts} attempts/item`);
+  console.log(`Resume:  ${stateStore.getCompletedCount()} item(s) already complete`);
 
   let stopping = false;
   const requestStop = () => { if (!stopping) { stopping = true; console.log("\nStop requested. Finishing the current safe boundary..."); } };
   process.once("SIGINT", requestStop); process.once("SIGTERM", requestStop);
 
-  try {
-    await ensureCatalogReady(page, config);
-    await runCatalogPass(page, config, stateStore, () => stopping);
-    if (config.finalRetry && !stopping) await runFinalFailurePass(page, config, stateStore, () => stopping);
-  } finally {
-    await context.close().catch(() => {});
+  let restartCount = 0;
+  while (!stopping) {
+    try {
+      await runBrowserSession(config, stateStore, () => stopping);
+      break;
+    } catch (error) {
+      if (!isBrowserClosedError(error) || stopping || restartCount >= config.sessionRestarts) {
+        throw error;
+      }
+
+      restartCount += 1;
+      console.warn(
+        `\nBrowser session closed unexpectedly. Restarting session ${restartCount}/${config.sessionRestarts} and resuming from saved state...`,
+      );
+      await backoff(restartCount, config.retryDelayMs);
+    }
   }
 
   const remainingFailures = stateStore.getFailures().filter((failure) => !stateStore.isCompleted(failure.itemId));
