@@ -83,6 +83,7 @@ Useful options:
 --limit <n>                    Items per catalog page (default: 96)
 --max-items <n>                Limit items processed per page; useful for testing
 --attempts <n>                 Attempts per item (default: 5)
+--session-restarts <n>         Browser session restarts after unexpected closure (default: 3)
 --download-timeout-ms <n>      Wait for a real browser download event (default: 90000)
 --in-place / --no-in-place     Desired In Place state (default: enabled)
 --with-skin                    Download with skin (default: without skin)
@@ -92,7 +93,7 @@ Useful options:
 --no-final-retry               Skip the final failure-only pass
 ```
 
-Press `Ctrl+C` to stop. State is written item-by-item, so starting the same command again resumes rather than beginning from scratch.
+Press `Ctrl+C` to stop. State is written item-by-item, so starting the same command again resumes rather than beginning from scratch. If the browser closes unexpectedly, the downloader restarts the session up to three times by default and resumes from saved state.
 
 ## Why Playwright?
 
