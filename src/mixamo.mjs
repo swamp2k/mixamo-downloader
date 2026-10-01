@@ -181,7 +181,7 @@ export async function selectCatalogItem(page, item, options = {}) {
     throw new Error(`Could not re-find "${item.name}" in the current catalog.`);
   }
 
-  const card = page.locator(CARD_SELECTOR).nth(liveIndex);
+  const card = page.locator(cardSelector(item.catalogType ?? "animations")).nth(liveIndex);
   await card.scrollIntoViewIfNeeded();
   await delay(350);
 
