@@ -84,7 +84,7 @@ function parseCli() {
   });
 
   if (values.help) {
-    console.log(`Mixamo Downloader\n\nUsage:\n  npm start -- [options]\n\nOptions:\n  --output <dir>                 Download/state directory\n  --profile <dir>                Persistent browser profile\n  --browser <bundled|brave|edge> Browser executable (default bundled)\n  --type <animations|characters>    Catalog to download (default animations)\n  --start-page <n>               First page (default 1)\n  --end-page <n>                 Last page (default 26)\n  --limit <n>                    Catalog page size (default 96)\n  --max-items <n>                Maximum items per page for a smoke test\n  --attempts <n>                 Attempts per item (default 5)\n  --download-timeout-ms <n>      Download event timeout (default 90000)\n  --in-place / --no-in-place     Desired In Place setting\n  --with-skin                    Download with skin\n  --fps <n>                      Preferred FPS (default 30)\n  --headless                     Run browser headless\n  --reset-state                  Clear saved completion/failure state\n  --no-final-retry               Skip the final failure-only pass\n  -h, --help                     Show this help\n`);
+    console.log(`Mixamo Downloader\n\nUsage:\n  npm start -- [options]\n\nOptions:\n  --output <dir>                 Download/state directory\n  --profile <dir>                Persistent browser profile\n  --browser <bundled|brave|edge> Browser executable (default bundled)\n  --type <animations|characters>    Catalog to download (default animations)\n  --start-page <n>               First page (default 1)\n  --end-page <n>                 Last page (default 26 animations / 2 characters)\n  --limit <n>                    Catalog page size (default 96)\n  --max-items <n>                Maximum items per page for a smoke test\n  --attempts <n>                 Attempts per item (default 5)\n  --download-timeout-ms <n>      Download event timeout (default 90000)\n  --in-place / --no-in-place     Desired In Place setting\n  --with-skin                    Download with skin\n  --fps <n>                      Preferred FPS (default 30)\n  --headless                     Run browser headless\n  --reset-state                  Clear saved completion/failure state\n  --no-final-retry               Skip the final failure-only pass\n  -h, --help                     Show this help\n`);
     return null;
   }
 
@@ -189,7 +189,7 @@ async function runFinalFailurePass(page, config, stateStore, stopRequested) {
 
 async function main() {
   const config = parseCli(); if (!config) return;
-  const stateStore = createStateStore(config.outputDir); await stateStore.load({ reset: config.resetState });
+  const stateStore = createStateStore(config.outputDir, config.type); await stateStore.load({ reset: config.resetState });
   console.log("Mixamo Downloader");
   console.log(`Output:  ${config.outputDir}`); console.log(`Profile: ${config.profileDir}`);
   console.log(`Browser: ${config.browser}`); console.log(`Type:    ${config.type}`);
