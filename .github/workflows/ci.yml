@@ -14,3 +14,18 @@ jobs:
           node-version: 22
       - run: npm install --ignore-scripts
       - run: npm run check
+      - run: python -m py_compile tools/convert_mixamo_fbx_to_glb.py
+      - name: Parse PowerShell converter wrapper
+        shell: pwsh
+        run: |
+          $tokens = $null
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile(
+            (Resolve-Path './tools/convert-characters.ps1'),
+            [ref]$tokens,
+            [ref]$errors
+          ) | Out-Null
+          if ($errors.Count -gt 0) {
+            $errors | ForEach-Object { Write-Error $_ }
+            exit 1
+          }

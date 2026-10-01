@@ -95,6 +95,26 @@ Useful options:
 
 Press `Ctrl+C` to stop. State is written item-by-item, so starting the same command again resumes rather than beginning from scratch. If the browser closes unexpectedly, the downloader restarts the session up to three times by default and resumes from saved state.
 
+## Convert downloaded characters to GLB
+
+For a conservative FBX -> GLB conversion, use Blender 4.5 LTS or newer. The converter imports one FBX into a clean Blender scene and exports one GLB without renaming bones, retargeting, applying armature transforms, or optimizing the mesh.
+
+On Windows PowerShell:
+
+```powershell
+.\tools\convert-characters.ps1 -InputDir .\mixamo-test\characters -OutputDir .\mixamo-test\characters-glb
+```
+
+The wrapper finds Blender from `PATH` or a standard `Program Files\Blender Foundation\...` install. You can also pass it explicitly:
+
+```powershell
+.\tools\convert-characters.ps1 -BlenderPath "C:\Program Files\Blender Foundation\Blender 4.5\blender.exe" -InputDir .\mixamo-test\characters -OutputDir .\mixamo-test\characters-glb
+```
+
+Existing GLB files are skipped. Add `-Overwrite` to regenerate them.
+
+For each FBX, the converter preserves the imported skeleton/skin and exports materials, skins, morph targets and animations when present. It writes to a temporary GLB first and only replaces the final file after a non-empty export succeeds. A `conversion-manifest.json` records converted, skipped and failed files so a partial batch can be inspected or resumed.
+
 ## Why Playwright?
 
 The browser-console script this project was inspired by has to infer download success by sleeping after a click. Playwright can observe the browser's actual download event and wait for the file to be saved. Its locators also re-resolve against the live DOM, which is useful on Mixamo's React UI where controls can be replaced during rerenders.
