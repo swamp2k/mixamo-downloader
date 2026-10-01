@@ -79,7 +79,7 @@ Useful options:
 --output <dir>                 Download/state directory (default: ./mixamo-downloads)
 --profile <dir>                Persistent Chromium profile (default: ./.mixamo-profile)
 --start-page <n>               First catalog page (default: 1)
---end-page <n>                 Last catalog page (default: 26)
+--end-page <n>                 Last catalog page (default: 26 animations / 2 characters)
 --limit <n>                    Items per catalog page (default: 96)
 --max-items <n>                Limit items processed per page; useful for testing
 --attempts <n>                 Attempts per item (default: 5)
@@ -113,4 +113,4 @@ Mixamo's web UI is not a documented automation API. Adobe can change markup or b
 
 Character mode uses Mixamo's Character catalog and downloads the rigged/skinned character asset through the normal Download dialog. Animation-only controls such as In Place, FPS and keyframe reduction are intentionally skipped.
 
-Character mode defaults to pages 1-2. Override with `--start-page` / `--end-page` if Mixamo expands the catalog.
+Character mode defaults to pages 1-2. Override with `--start-page` / `--end-page` if Mixamo expands the catalog. Character progress is stored separately in `.mixamo-state-characters.json` / `.mixamo-failures-characters.json`, so resets do not affect animation progress.
