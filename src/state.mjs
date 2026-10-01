@@ -20,9 +20,10 @@ async function atomicWriteJson(filePath, value) {
   await fs.rename(tempPath, filePath);
 }
 
-export function createStateStore(outputDir) {
-  const statePath = path.join(outputDir, ".mixamo-state.json");
-  const failuresPath = path.join(outputDir, ".mixamo-failures.json");
+export function createStateStore(outputDir, catalogType = "animations") {
+  const suffix = catalogType === "characters" ? "-characters" : "";
+  const statePath = path.join(outputDir, `.mixamo-state${suffix}.json`);
+  const failuresPath = path.join(outputDir, `.mixamo-failures${suffix}.json`);
   let state = freshState();
 
   async function load({ reset = false } = {}) {
@@ -74,7 +75,7 @@ export function createStateStore(outputDir) {
       itemId: item.itemId,
       name: item.name,
       page: item.page,
-      type: item.isPack ? "animation-pack" : "animation",
+      type: item.kind ?? (item.isPack ? "animation-pack" : "animation"),
       file: result.file,
       bytes: result.bytes,
       completedAt: new Date().toISOString(),
@@ -97,7 +98,7 @@ export function createStateStore(outputDir) {
       name: item.name,
       page: item.page,
       index: item.index,
-      type: item.isPack ? "animation-pack" : "animation",
+      type: item.kind ?? (item.isPack ? "animation-pack" : "animation"),
       attempts,
       error: String(error?.message ?? error),
       failedAt: new Date().toISOString(),

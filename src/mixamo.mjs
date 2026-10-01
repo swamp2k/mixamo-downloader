@@ -1,10 +1,17 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 
-export const CARD_SELECTOR = [
-  ".product-results-holder .product-list .product-animation",
-  ".product-results-holder .product-list .product-animation-pack",
-].join(", ");
+export const CARD_SELECTORS = {
+  animations: [
+    ".product-results-holder .product-list .product-animation",
+    ".product-results-holder .product-list .product-animation-pack",
+  ].join(", "),
+  characters: ".product-results-holder .product-list .product-character",
+};
+
+function cardSelector(catalogType) {
+  return CARD_SELECTORS[catalogType] ?? CARD_SELECTORS.animations;
+}
 
 const MODAL_SELECTOR = [
   ".static-modal .modal:visible",
@@ -13,8 +20,9 @@ const MODAL_SELECTOR = [
   ".static-modal:visible",
 ].join(", ");
 
-export function catalogUrl(pageNumber, limit = 96) {
-  return `https://www.mixamo.com/#/?page=${pageNumber}&type=Motion%2CMotionPack&limit=${limit}`;
+export function catalogUrl(pageNumber, limit = 96, catalogType = "animations") {
+  const type = catalogType === "characters" ? "Character" : "Motion%2CMotionPack";
+  return `https://www.mixamo.com/#/?page=${pageNumber}&type=${type}&limit=${limit}`;
 }
 
 function normalizeText(value) {
@@ -59,15 +67,16 @@ async function uniqueDestination(directory, suggestedFilename) {
   }
 }
 
-export async function waitForCatalog(page, timeoutMs = 30000) {
-  await page.locator(CARD_SELECTOR).first().waitFor({
+export async function waitForCatalog(page, catalogType = "animations", timeoutMs = 30000) {
+  await page.locator(cardSelector(catalogType)).first().waitFor({
     state: "visible",
     timeout: timeoutMs,
   });
 }
 
-export async function getCatalogItems(page, pageNumber) {
-  return page.locator(CARD_SELECTOR).evaluateAll((cards, currentPage) => {
+export async function getCatalogItems(page, pageNumber, catalogType = "animations") {
+  return page.locator(cardSelector(catalogType)).evaluateAll((cards, args) => {
+    const { currentPage, catalogType: liveCatalogType } = args;
     const normalize = (value) =>
       String(value ?? "")
         .replace(/\s+/g, " ")
@@ -83,12 +92,14 @@ export async function getCatalogItems(page, pageNumber) {
         card.querySelector(".product-metadata li")?.textContent?.trim() || "";
       const thumbnailUrl = image?.src || "";
       const isPack = card.classList.contains("product-animation-pack");
+      const isCharacter = liveCatalogType === "characters";
       const motionMatch = thumbnailUrl.match(
         /\/motions\/([^/]+)\/animated\.(?:gif|png|jpg|jpeg)/i,
       );
       const packMatch = thumbnailUrl.match(
         /\/motion_packs\/([^/]+)\/animated\.(?:gif|png|jpg|jpeg)/i,
       );
+      const characterMatch = thumbnailUrl.match(/\/characters\/([^/]+)/i);
       const animationCount = isPack
         ? Number.parseInt(
             card.querySelector(".product-count")?.textContent?.trim() || "",
@@ -97,7 +108,9 @@ export async function getCatalogItems(page, pageNumber) {
         : 1;
 
       let itemId;
-      if (isPack) {
+      if (isCharacter) {
+        itemId = `character:${characterMatch?.[1] || normalize(name)}`;
+      } else if (isPack) {
         itemId = `pack:${packMatch?.[1] || normalize(name)}`;
       } else if (motionMatch?.[1]) {
         itemId = `motion:${motionMatch[1]}`;
@@ -111,6 +124,8 @@ export async function getCatalogItems(page, pageNumber) {
         page: currentPage,
         index,
         itemId,
+        kind: isCharacter ? "character" : isPack ? "animation-pack" : "animation",
+        catalogType: liveCatalogType,
         isPack,
         animationCount,
         name,
@@ -118,7 +133,7 @@ export async function getCatalogItems(page, pageNumber) {
         thumbnailUrl,
       };
     });
-  }, pageNumber);
+  }, { currentPage: pageNumber, catalogType });
 }
 
 async function selectedItemName(page) {
@@ -131,9 +146,13 @@ async function selectedItemName(page) {
   ).trim();
 }
 
-async function findLiveItemIndex(page, itemId, pageNumber) {
-  const items = await getCatalogItems(page, pageNumber);
-  return items.findIndex((candidate) => candidate.itemId === itemId);
+async function findLiveItemIndex(page, item) {
+  const items = await getCatalogItems(
+    page,
+    item.page,
+    item.catalogType ?? "animations",
+  );
+  return items.findIndex((candidate) => candidate.itemId === item.itemId);
 }
 
 async function mainDownloadButton(page) {
@@ -157,12 +176,12 @@ async function mainDownloadButton(page) {
 
 export async function selectCatalogItem(page, item, options = {}) {
   const selectionTimeoutMs = options.selectionTimeoutMs ?? 30000;
-  const liveIndex = await findLiveItemIndex(page, item.itemId, item.page);
+  const liveIndex = await findLiveItemIndex(page, item);
   if (liveIndex < 0) {
     throw new Error(`Could not re-find "${item.name}" in the current catalog.`);
   }
 
-  const card = page.locator(CARD_SELECTOR).nth(liveIndex);
+  const card = page.locator(cardSelector(item.catalogType ?? "animations")).nth(liveIndex);
   await card.scrollIntoViewIfNeeded();
   await delay(350);
 
@@ -377,13 +396,17 @@ async function chooseOption(select, desiredTexts, settingName) {
   return true;
 }
 
-async function configureDownloadModal(page, config) {
+async function configureDownloadModal(page, item, config) {
   let modal = await visibleModal(page, config.modalTimeoutMs);
   await chooseOption(
     await findSelectByHints(modal, ["fbx binary", "fbx", "collada", "dae"]),
     [config.format],
     "Format",
   );
+
+  if (item.kind === "character") {
+    return;
+  }
 
   modal = await visibleModal(page, config.modalTimeoutMs);
   await chooseOption(
@@ -450,15 +473,17 @@ export async function dismissTransientUi(page) {
 export async function downloadItem(page, item, config) {
   await selectCatalogItem(page, item, config);
 
-  const inPlace = await ensureInPlace(page, config.inPlace, config);
-  console.log(
-    inPlace.available
-      ? `  In Place: ${inPlace.value}`
-      : "  In Place: unavailable for this item",
-  );
+  if (item.kind !== "character") {
+    const inPlace = await ensureInPlace(page, config.inPlace, config);
+    console.log(
+      inPlace.available
+        ? `  In Place: ${inPlace.value}`
+        : "  In Place: unavailable for this item",
+    );
+  }
 
   await openDownloadModal(page, config.modalTimeoutMs);
-  await configureDownloadModal(page, config);
+  await configureDownloadModal(page, item, config);
 
   const button = await finalDownloadButton(page, config.modalTimeoutMs);
   if (!button) {
@@ -494,13 +519,13 @@ export async function downloadItem(page, item, config) {
   };
 }
 
-export async function resetToCatalogPage(page, pageNumber, limit, timeoutMs) {
+export async function resetToCatalogPage(page, pageNumber, limit, catalogType = "animations", timeoutMs) {
   await dismissTransientUi(page);
-  await page.goto(catalogUrl(pageNumber, limit), {
+  await page.goto(catalogUrl(pageNumber, limit, catalogType), {
     waitUntil: "domcontentloaded",
     timeout: 60000,
   });
-  await waitForCatalog(page, timeoutMs);
+  await waitForCatalog(page, catalogType, timeoutMs);
 }
 
 export async function backoff(attempt, baseMs = 1500) {
