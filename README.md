@@ -1,13 +1,15 @@
 # mixamo-downloader
 
-A resilient terminal downloader for the Mixamo animation catalog, driven through a real Chromium session with Playwright.
+A resilient terminal downloader for the Mixamo animation and character catalogs, driven through a real Chromium session with Playwright.
 
 The goal is simple: download a large Mixamo library without losing hours of progress because one React control was slow, a modal rerendered, or a download took longer than expected.
 
 ## What it does
 
 - Uses a persistent Chromium profile, so your Adobe/Mixamo login survives restarts.
-- Opens the Mixamo animation catalog with `96` items per page.
+- Opens either the Mixamo animation or character catalog with `96` items per page.
+- Stores animations under `animations/` and characters under `characters/`.
+- Supports Playwright Chromium, Microsoft Edge and Brave on Windows, macOS and Linux.
 - Downloads through the normal Mixamo UI; it does not depend on Mixamo's undocumented download API.
 - Waits for Playwright's real `download` event before marking an item complete.
 - Re-queries UI controls after rerenders instead of holding stale DOM references.
@@ -51,15 +53,29 @@ For a small smoke test before committing to the full catalog:
 npm start -- --output ./mixamo-test --end-page 1 --max-items 3
 ```
 
-Then run the real job:
+Then run the real animation job:
 
 ```bash
 npm start -- --output ./mixamo
 ```
 
+Download characters instead:
+
+```bash
+npm start -- --type characters --output ./mixamo
+```
+
+On Windows PowerShell the same command works unchanged. To use installed Edge:
+
+```powershell
+npm start -- --type characters --browser edge --output .\mixamo
+```
+
 Useful options:
 
 ```text
+--browser <bundled|brave|edge> Browser executable (default: bundled)
+--type <animations|characters>    Catalog to download (default: animations)
 --output <dir>                 Download/state directory (default: ./mixamo-downloads)
 --profile <dir>                Persistent Chromium profile (default: ./.mixamo-profile)
 --start-page <n>               First catalog page (default: 1)
@@ -91,3 +107,10 @@ That script in turn credits earlier Mixamo downloader work by LouisGameDev. This
 ## Caveat
 
 Mixamo's web UI is not a documented automation API. Adobe can change markup or behavior at any time. The downloader therefore treats selectors as fallible, retries transient failures, and records enough state to resume after selector fixes.
+
+
+## Character downloads
+
+Character mode uses Mixamo's Character catalog and downloads the rigged/skinned character asset through the normal Download dialog. Animation-only controls such as In Place, FPS and keyframe reduction are intentionally skipped.
+
+Character mode defaults to pages 1-2. Override with `--start-page` / `--end-page` if Mixamo expands the catalog.
